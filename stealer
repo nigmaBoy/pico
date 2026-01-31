@@ -71,6 +71,3 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
-
-# Clean up
-Remove-Item $MyInvocation.MyCommand.Path -Force
